@@ -1,0 +1,6 @@
+{
+  "name": "MedFlash - Medical Spaced Repetition Flashcards",
+  "description": "Smart spaced-repetition medical flashcard app with Persian & English support, AI textbook prompt generator, SM-2 memory retention algorithm, and interactive study modes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
