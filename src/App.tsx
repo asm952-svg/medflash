@@ -54,6 +54,7 @@ export default function App() {
   const [editingCard, setEditingCard] = useState<Flashcard | null>(null);
   const [defaultEditorDeckId, setDefaultEditorDeckId] = useState<string | undefined>(undefined);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [explainCard, setExplainCard] = useState<Flashcard | null>(null);
 
   // Resume-session banner (shows if the app was closed mid-session)
   const [resumeBanner, setResumeBanner] = useState<{ pointer: SessionPointer; deck: Deck } | null>(null);
@@ -379,6 +380,7 @@ export default function App() {
                 onFinishSession={handleFinishStudySession}
                 onProgress={handleSessionProgress}
                 onExit={handleExitSession}
+                onExplainMore={setExplainCard}
               />
             )}
 
@@ -395,6 +397,7 @@ export default function App() {
                   recordCardReviewInStats(isCorrect ? 3 : 1);
                   setStats(loadStats());
                 }}
+                onExplainMore={setExplainCard}
               />
             )}
 
@@ -406,6 +409,7 @@ export default function App() {
                   setActiveSession(null);
                   clearSessionPointer();
                 }}
+                onExplainMore={setExplainCard}
               />
             )}
           </div>
@@ -507,6 +511,15 @@ export default function App() {
 
       {/* Settings Modal (Gemini API key) */}
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      <DeepExplainModal
+        isOpen={!!explainCard}
+        onClose={() => setExplainCard(null)}
+        card={explainCard}
+        onOpenSettings={() => {
+          setExplainCard(null);
+          setIsSettingsOpen(true);
+        }}
+      />
 
       {/* Import Cards Modal */}
       <ImportCardsModal
