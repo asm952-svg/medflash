@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Upload,
   FileCode,
@@ -15,18 +15,14 @@ import {
   FileText,
   ChevronLeft,
   ChevronRight,
-  Copy,
-  ShieldCheck,
 } from 'lucide-react';
 import { Deck, Flashcard } from '../types';
 import { parseCardsFromText, ParseResult } from '../utils/cardParser';
-import { detectDuplicatesInBatch, DuplicateMatch } from '../utils/duplicateDetection';
 
 interface ImportCardsModalProps {
   isOpen: boolean;
   onClose: () => void;
   decks: Deck[];
-  existingCards: Flashcard[];
   initialJson?: string;
   onImportSuccess: (newCards: Flashcard[], targetDeckId: string, newDeckTitle?: string) => void;
 }
@@ -35,7 +31,6 @@ export const ImportCardsModal: React.FC<ImportCardsModalProps> = ({
   isOpen,
   onClose,
   decks,
-  existingCards,
   initialJson = '',
   onImportSuccess,
 }) => {
@@ -48,9 +43,6 @@ export const ImportCardsModal: React.FC<ImportCardsModalProps> = ({
   const [previewCards, setPreviewCards] = useState<Partial<Flashcard>[]>([]);
   const [activeStep, setActiveStep] = useState<'input' | 'preview'>('input');
   const [previewPage, setPreviewPage] = useState(1);
-  const [skipDuplicates, setSkipDuplicates] = useState(true);
-  // Cards the user explicitly chose to keep even though they were flagged as duplicates (by card id).
-  const [forceKeepIds, setForceKeepIds] = useState<Set<string>>(new Set());
   const cardsPerPage = 20;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -68,35 +60,11 @@ export const ImportCardsModal: React.FC<ImportCardsModalProps> = ({
     }
   }, [decks]);
 
-  // Duplicate detection: compare each candidate card against cards already
-  // saved in the target deck, plus other candidates earlier in the same paste/file.
-  const duplicateMap = useMemo(() => {
-    const pool = existingCards.filter((c) => c.deckId === selectedDeckId);
-    return detectDuplicatesInBatch(previewCards, pool).duplicates;
-  }, [previewCards, existingCards, selectedDeckId]);
-
-  // Index -> duplicate match, but keyed by the stable card id for use across re-renders/removals.
-  const duplicateById = useMemo(() => {
-    const map = new Map<string, DuplicateMatch & { isInternal: boolean }>();
-    previewCards.forEach((card, idx) => {
-      const match = duplicateMap.get(idx);
-      if (match && card.id) map.set(card.id, match);
-    });
-    return map;
-  }, [duplicateMap, previewCards]);
-
-  const duplicateCount = duplicateById.size;
-  const cardsToImport = previewCards.filter(
-    (c) => !c.id || !duplicateById.has(c.id) || forceKeepIds.has(c.id) || !skipDuplicates
-  );
-  const willImportCount = cardsToImport.length;
-
   if (!isOpen) return null;
 
   const handleParse = (textToParse: string) => {
     const result = parseCardsFromText(textToParse, selectedDeckId);
     setParseResult(result);
-    setForceKeepIds(new Set());
     if (result.success) {
       setPreviewCards(result.cards);
       setPreviewPage(1);
@@ -135,17 +103,8 @@ export const ImportCardsModal: React.FC<ImportCardsModalProps> = ({
     setPreviewCards(updated);
   };
 
-  const handleToggleForceKeep = (cardId: string) => {
-    setForceKeepIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(cardId)) next.delete(cardId);
-      else next.add(cardId);
-      return next;
-    });
-  };
-
   const handleFinalImport = () => {
-    if (cardsToImport.length === 0) return;
+    if (previewCards.length === 0) return;
 
     let finalDeckId = selectedDeckId;
     let customDeckName: string | undefined = undefined;
@@ -155,7 +114,7 @@ export const ImportCardsModal: React.FC<ImportCardsModalProps> = ({
       customDeckName = newDeckTitle.trim() || 'دسته فلش‌کارت جدید';
     }
 
-    const finalizedCards: Flashcard[] = cardsToImport.map((c) => ({
+    const finalizedCards: Flashcard[] = previewCards.map((c) => ({
       id: c.id || `card_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       deckId: finalDeckId,
       cardType: c.cardType || (c.options && c.options.length >= 2 ? 'mcq' : 'standard'),
@@ -364,29 +323,9 @@ export const ImportCardsModal: React.FC<ImportCardsModalProps> = ({
 
           {activeStep === 'preview' && (
             <div className="space-y-4">
-              {duplicateCount > 0 && (
-                <div className="p-3.5 rounded-xl border border-amber-300 bg-amber-50/80 text-amber-950 flex flex-col sm:flex-row sm:items-center gap-2.5 justify-between">
-                  <div className="flex items-start gap-2 text-xs">
-                    <Copy className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
-                    <span>
-                      <strong>{duplicateCount} کارت</strong> شبیه به کارت‌های موجود در این دسته (یا تکراری در همین فایل) شناسایی شد.
-                    </span>
-                  </div>
-                  <label className="flex items-center gap-1.5 text-[11px] font-bold cursor-pointer shrink-0">
-                    <input
-                      type="checkbox"
-                      checked={skipDuplicates}
-                      onChange={(e) => setSkipDuplicates(e.target.checked)}
-                      className="w-3.5 h-3.5 accent-amber-600"
-                    />
-                    <span>رد کردن خودکار موارد تکراری هنگام ورود</span>
-                  </label>
-                </div>
-              )}
-
               <div className="flex items-center justify-between text-xs text-slate-600">
                 <span>
-                  پیش‌نمایش کارت‌های آماده اضافه شدن (مجموع {previewCards.length} کارت، {willImportCount} کارت وارد خواهد شد - صفحه {previewPage} از {totalPreviewPages || 1}):
+                  پیش‌نمایش کارت‌های آماده اضافه شدن (مجموع {previewCards.length} کارت - صفحه {previewPage} از {totalPreviewPages || 1}):
                 </span>
 
                 {totalPreviewPages > 1 && (
@@ -414,22 +353,15 @@ export const ImportCardsModal: React.FC<ImportCardsModalProps> = ({
                 {displayedPreviewCards.map((card, idx) => {
                   const globalIdx = (previewPage - 1) * cardsPerPage + idx;
                   const isMCQ = card.cardType === 'mcq' || (card.options && card.options.length >= 2);
-                  const dupMatch = card.id ? duplicateById.get(card.id) : undefined;
-                  const isKeptAnyway = card.id ? forceKeepIds.has(card.id) : false;
-                  const willBeSkipped = !!dupMatch && skipDuplicates && !isKeptAnyway;
 
                   return (
                     <div
                       key={globalIdx}
-                      className={`p-4 rounded-xl border transition space-y-2 relative group ${
-                        willBeSkipped
-                          ? 'border-amber-300 bg-amber-50/50 opacity-70'
-                          : 'border-slate-200 bg-slate-50/60 hover:bg-white hover:border-blue-400'
-                      }`}
+                      className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-white hover:border-blue-400 transition space-y-2 relative group"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="space-y-1 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
+                          <div className="flex items-center gap-2">
                             <span className="inline-block px-2 py-0.5 bg-blue-100 text-blue-800 text-[10px] font-bold rounded-md">
                               کارت #{globalIdx + 1}
                             </span>
@@ -438,45 +370,17 @@ export const ImportCardsModal: React.FC<ImportCardsModalProps> = ({
                                 تست ۴ گزینه‌ای
                               </span>
                             )}
-                            {dupMatch && (
-                              <span className="px-2 py-0.5 bg-amber-100 text-amber-900 text-[10px] font-bold rounded-md flex items-center gap-1">
-                                <Copy className="w-3 h-3" />
-                                {dupMatch.isInternal ? 'تکراری در همین فایل' : 'مشابه کارت موجود'} (
-                                {Math.round(dupMatch.score * 100)}٪)
-                              </span>
-                            )}
                           </div>
                           <p className="text-xs font-bold text-slate-800 pt-1">{card.front}</p>
-                          {dupMatch && (
-                            <p className="text-[11px] text-amber-700 pt-0.5">
-                              مشابه: «{(dupMatch.matchedCard.front || '').slice(0, 90)}
-                              {(dupMatch.matchedCard.front || '').length > 90 ? '…' : ''}»
-                            </p>
-                          )}
                         </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {dupMatch && card.id && (
-                            <button
-                              onClick={() => handleToggleForceKeep(card.id!)}
-                              title={isKeptAnyway ? 'رد کردن این کارت از ورود' : 'افزودن با وجود تشابه'}
-                              className={`p-1.5 rounded-md transition cursor-pointer ${
-                                isKeptAnyway
-                                  ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
-                                  : 'text-amber-600 hover:bg-amber-100'
-                              }`}
-                            >
-                              <ShieldCheck className="w-4 h-4" />
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleRemovePreviewCard(globalIdx)}
-                            className="text-slate-400 hover:text-rose-600 p-1 rounded-md hover:bg-rose-50 transition cursor-pointer"
-                            title="حذف این کارت"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+                        <button
+                          onClick={() => handleRemovePreviewCard(globalIdx)}
+                          className="text-slate-400 hover:text-rose-600 p-1 rounded-md hover:bg-rose-50 transition cursor-pointer"
+                          title="حذف این کارت"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
 
                       {/* Options Preview if MCQ */}
@@ -549,14 +453,11 @@ export const ImportCardsModal: React.FC<ImportCardsModalProps> = ({
 
             <button
               onClick={handleFinalImport}
-              disabled={willImportCount === 0}
+              disabled={previewCards.length === 0}
               className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-md shadow-blue-600/20 cursor-pointer"
             >
               <Check className="w-4 h-4" />
-              <span>
-                وارد کردن {willImportCount} فلش‌کارت به برنامه
-                {duplicateCount > 0 && skipDuplicates ? ` (${duplicateCount} تکراری رد شد)` : ''}
-              </span>
+              <span>وارد کردن {previewCards.length} فلش‌کارت به برنامه</span>
             </button>
           </div>
         </div>

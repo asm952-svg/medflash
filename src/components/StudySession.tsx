@@ -17,7 +17,6 @@ import {
 import confetti from 'canvas-confetti';
 import { Flashcard, ReviewRating, Deck } from '../types';
 import { calculateSM2, getIntervalPreview } from '../utils/sm2';
-import { AiExplainPanel } from './AiExplainPanel';
 
 interface StudySessionProps {
   deck: Deck;
@@ -27,7 +26,8 @@ interface StudySessionProps {
   /** Called immediately after each card is rated, so progress is never lost
    * if the app is closed mid-session. */
   onProgress?: (updatedCard: Flashcard) => void;
-  onOpenSettings?: () => void;
+  /** Called when the user taps "Explain more with AI" on the answer side. */
+  onExplainMore?: (card: Flashcard) => void;
 }
 
 export const StudySession: React.FC<StudySessionProps> = ({
@@ -36,7 +36,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
   onFinishSession,
   onExit,
   onProgress,
-  onOpenSettings,
+  onExplainMore,
 }) => {
   // Active queue of cards to study in this session
   const [queue, setQueue] = useState<Flashcard[]>([]);
@@ -499,9 +499,17 @@ export const StudySession: React.FC<StudySessionProps> = ({
                 </div>
               )}
 
-              <div className="pt-1">
-                <AiExplainPanel card={currentCard} onOpenSettings={onOpenSettings} />
-              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onExplainMore?.(currentCard);
+                }}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-l from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-2xl text-xs font-black transition shadow-md shadow-emerald-600/20 cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>توضیح بیشتر و منابع با هوش مصنوعی</span>
+              </button>
             </div>
           )}
         </div>

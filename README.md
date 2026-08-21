@@ -39,6 +39,14 @@ This project is already wired up with [Capacitor](https://capacitorjs.com) (see 
 4. When it finishes (a few minutes), open the run → scroll to **Artifacts** → download `medflash-debug-apk`. Unzip it to get `app-debug.apk`.
 5. Transfer the APK to your Android phone (email, Drive, USB, etc.) and tap it to install. You'll need to allow "Install unknown apps" for whichever app you used to open it — Android will prompt you for this automatically.
 
-**Note on the AI features:** The two AI-generation entry points ("AI File Upload" and "Direct Generate" in the Prompt Generator) call a small Node backend (`server.ts`) that talks to Gemini. A packaged mobile app can't run that server, so those two specific actions are disabled in this build with a friendly message. Everything else — manual card creation/editing, the Prompt Generator's copy-to-clipboard prompts, JSON import/export, decks, study/quiz/active-recall sessions, and stats — works fully offline exactly as before. If you want AI generation back in the app later, let me know and I can wire it to call Gemini directly from the device or point at a backend you host.
+**Note on the AI features:** The app now calls Gemini **directly from your device** using your own personal API key — no backend server needed at all (the old `server.ts` is no longer used by the mobile build). Enter your key once in **Settings** (gear icon in the navbar) — it's stored only in the app's local storage on your phone and is never sent anywhere except straight to Google's API.
+
+With a key entered, you get:
+- **AI file/PDF upload** — upload a book chapter, slide photo, or notes and Gemini extracts flashcards automatically, sorted into the right deck/specialty.
+- **Prompt Generator's direct-generate tab** — same idea, for pasted text.
+- **AI performance analysis** (Stats tab) — Gemini reviews your study history per specialty and tells you your weak/strong topics with concrete advice.
+- **Session memory** — if you close the app mid-study-session, a "Resume where you left off" banner appears next time you open it, and every card you rate is saved instantly so nothing is lost.
+
+Get a free Gemini API key at https://aistudio.google.com/apikey.
 
 **If you want a signed release APK instead of a debug one** (needed for e.g. publishing to the Play Store), that requires a signing keystore, which I can't generate securely on your behalf inside this chat. Let me know if you'd like the workflow extended to produce a signed release build — you'd generate and store the keystore as a GitHub Actions secret yourself.

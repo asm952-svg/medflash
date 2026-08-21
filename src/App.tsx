@@ -28,6 +28,7 @@ import { ImportCardsModal } from './components/ImportCardsModal';
 import { CardEditorModal } from './components/CardEditorModal';
 import { AiFileUploadModal } from './components/AiFileUploadModal';
 import { SettingsModal } from './components/SettingsModal';
+import { DeepExplainModal } from './components/DeepExplainModal';
 import { CheckCircle2, PlayCircle, X as XIcon } from 'lucide-react';
 
 export default function App() {
@@ -378,7 +379,6 @@ export default function App() {
                 onFinishSession={handleFinishStudySession}
                 onProgress={handleSessionProgress}
                 onExit={handleExitSession}
-                onOpenSettings={() => setIsSettingsOpen(true)}
               />
             )}
 
@@ -395,7 +395,6 @@ export default function App() {
                   recordCardReviewInStats(isCorrect ? 3 : 1);
                   setStats(loadStats());
                 }}
-                onOpenSettings={() => setIsSettingsOpen(true)}
               />
             )}
 
@@ -407,7 +406,6 @@ export default function App() {
                   setActiveSession(null);
                   clearSessionPointer();
                 }}
-                onOpenSettings={() => setIsSettingsOpen(true)}
               />
             )}
           </div>
@@ -482,7 +480,6 @@ export default function App() {
         isOpen={isAiFileModalOpen}
         onClose={() => setIsAiFileModalOpen(false)}
         decks={decks}
-        existingCards={cards}
         onImportSuccess={handleImportSuccess}
         onOpenPromptGen={() => {
           setIsAiFileModalOpen(false);
@@ -516,7 +513,6 @@ export default function App() {
         isOpen={isImportOpen}
         onClose={() => setIsImportOpen(false)}
         decks={decks}
-        existingCards={cards}
         initialJson={importInitialJson}
         onImportSuccess={handleImportSuccess}
       />
@@ -529,7 +525,6 @@ export default function App() {
           setEditingCard(null);
         }}
         decks={decks}
-        existingCards={cards}
         editingCard={editingCard}
         defaultDeckId={defaultEditorDeckId}
         onSaveCard={handleSaveCard}

@@ -11,20 +11,19 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Deck, Flashcard } from '../types';
-import { AiExplainPanel } from './AiExplainPanel';
 
 interface ActiveRecallSessionProps {
   deck: Deck;
   cards: Flashcard[];
   onExit: () => void;
-  onOpenSettings?: () => void;
+  onExplainMore?: (card: Flashcard) => void;
 }
 
 export const ActiveRecallSession: React.FC<ActiveRecallSessionProps> = ({
   deck,
   cards,
   onExit,
-  onOpenSettings,
+  onExplainMore,
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [typedAnswer, setTypedAnswer] = useState('');
@@ -179,7 +178,16 @@ export const ActiveRecallSession: React.FC<ActiveRecallSessionProps> = ({
               </div>
             )}
 
-            <AiExplainPanel card={currentCard} onOpenSettings={onOpenSettings} />
+            {onExplainMore && (
+              <button
+                type="button"
+                onClick={() => onExplainMore(currentCard)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-l from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-2xl text-xs font-black transition shadow-md shadow-emerald-600/20 cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>توضیح بیشتر و منابع با هوش مصنوعی</span>
+              </button>
+            )}
 
             <div className="flex justify-end pt-2">
               <button
