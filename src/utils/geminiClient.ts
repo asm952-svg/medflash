@@ -42,6 +42,27 @@ export async function generateFlashcards(
   }
 }
 
+export async function generateFlashcardsFromSource(
+  sourceText: string,
+  apiKey: string,
+  modelName: string = 'gemini-3.7-flash'
+): Promise<string> {
+  if (!apiKey) throw new GeminiError('Gemini API key is required');
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+      model: modelName,
+      contents: sourceText,
+      config: {
+        responseMimeType: 'application/json',
+      },
+    });
+    return response.text || '';
+  } catch (error: any) {
+    throw new GeminiError(error.message || 'Failed to generate flashcards from source');
+  }
+}
+
 export async function explainConcept(
   prompt: string,
   apiKey: string,
