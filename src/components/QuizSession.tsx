@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Deck, Flashcard } from '../types';
+import { AiExplainPanel } from './AiExplainPanel';
 
 interface QuizSessionProps {
   deck: Deck;
@@ -18,6 +19,7 @@ interface QuizSessionProps {
   allDeckCards: Flashcard[];
   onExit: () => void;
   onCardAnswered?: (card: Flashcard, isCorrect: boolean) => void;
+  onOpenSettings?: () => void;
 }
 
 export const QuizSession: React.FC<QuizSessionProps> = ({
@@ -26,6 +28,7 @@ export const QuizSession: React.FC<QuizSessionProps> = ({
   allDeckCards,
   onExit,
   onCardAnswered,
+  onOpenSettings,
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
@@ -220,6 +223,8 @@ export const QuizSession: React.FC<QuizSessionProps> = ({
                 </div>
               </div>
             )}
+
+            <AiExplainPanel card={currentCard} onOpenSettings={onOpenSettings} />
 
             <div className="flex justify-end pt-2">
               <button

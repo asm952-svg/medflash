@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Check, Edit, Layers, Tag, Lightbulb, BrainCircuit } from 'lucide-react';
+import { Plus, Check, Edit, Layers, Tag, Lightbulb, BrainCircuit, ShieldAlert } from 'lucide-react';
 import { Deck, Flashcard } from '../types';
+import { findDuplicate, DuplicateMatch } from '../utils/duplicateDetection';
 
 interface CardEditorModalProps {
   isOpen: boolean;
   onClose: () => void;
   decks: Deck[];
+  existingCards: Flashcard[];
   editingCard?: Flashcard | null;
   defaultDeckId?: string;
   onSaveCard: (card: Partial<Flashcard>) => void;
@@ -15,6 +17,7 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
   isOpen,
   onClose,
   decks,
+  existingCards,
   editingCard,
   defaultDeckId,
   onSaveCard,
@@ -30,6 +33,8 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
   const [specialty, setSpecialty] = useState('');
   const [tagsString, setTagsString] = useState('');
   const [clozeAnswer, setClozeAnswer] = useState('');
+  const [duplicateWarning, setDuplicateWarning] = useState<DuplicateMatch | null>(null);
+  const [confirmedDespiteDuplicate, setConfirmedDespiteDuplicate] = useState(false);
 
   useEffect(() => {
     if (editingCard) {
@@ -62,6 +67,8 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
       setTagsString('');
       setClozeAnswer('');
     }
+    setDuplicateWarning(null);
+    setConfirmedDespiteDuplicate(false);
   }, [editingCard, defaultDeckId, decks, isOpen]);
 
   if (!isOpen) return null;
@@ -75,6 +82,18 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!front.trim() || !back.trim() || !deckId) return;
+
+    // Duplicate check only applies to brand-new cards (not edits to an existing one),
+    // and only against other cards already saved in the same deck.
+    if (!editingCard && !confirmedDespiteDuplicate) {
+      const pool = existingCards.filter((c) => c.deckId === deckId);
+      const match = findDuplicate({ front: front.trim(), back: back.trim() }, pool);
+      if (match) {
+        setDuplicateWarning(match);
+        return;
+      }
+    }
+    setDuplicateWarning(null);
 
     const tags = tagsString
       .split(',')
@@ -181,7 +200,11 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
               rows={3}
               required
               value={front}
-              onChange={(e) => setFront(e.target.value)}
+              onChange={(e) => {
+                setFront(e.target.value);
+                setDuplicateWarning(null);
+                setConfirmedDespiteDuplicate(false);
+              }}
               placeholder={
                 cardType === 'mcq'
                   ? 'مثال: بیمار با تنگی نفس ناگهانی و تاکی‌کاردی پس از جراحی استخوان ران مراجعه کرده است. محتمل‌ترین تشخیص کدام است؟'
@@ -302,6 +325,29 @@ export const CardEditorModal: React.FC<CardEditorModalProps> = ({
               />
             </div>
           </div>
+
+          {duplicateWarning && (
+            <div className="p-3.5 rounded-xl border border-amber-300 bg-amber-50/90 text-amber-950 flex items-start gap-2.5">
+              <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+              <div className="space-y-1">
+                <p>
+                  این کارت شبیه به یک کارت موجود در همین دسته است (
+                  {Math.round(duplicateWarning.score * 100)}٪ مشابهت):
+                </p>
+                <p className="italic text-amber-800">
+                  «{(duplicateWarning.matchedCard.front || '').slice(0, 100)}
+                  {(duplicateWarning.matchedCard.front || '').length > 100 ? '…' : ''}»
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setConfirmedDespiteDuplicate(true)}
+                  className="mt-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold transition cursor-pointer"
+                >
+                  متوجه شدم، دوباره روی «افزودن به کارت‌ها» بزنید
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
             <button

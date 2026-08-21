@@ -23,17 +23,21 @@ import {
   QUICK_TEMPLATES,
   SAMPLE_JSON_DEMO,
 } from '../utils/aiPromptTemplate';
+import { loadAISettings } from '../utils/storage';
+import { generateFlashcardsFromSource, GeminiError } from '../utils/geminiClient';
 
 interface PromptGeneratorModalProps {
   isOpen: boolean;
   onClose: () => void;
   onDirectImport?: (rawJson: string) => void;
+  onOpenSettings?: () => void;
 }
 
 export const PromptGeneratorModal: React.FC<PromptGeneratorModalProps> = ({
   isOpen,
   onClose,
   onDirectImport,
+  onOpenSettings,
 }) => {
 
   const [activeTab, setActiveTab] = useState<'prompt' | 'batch500' | 'direct' | 'sample'>('prompt');
@@ -61,6 +65,7 @@ export const PromptGeneratorModal: React.FC<PromptGeneratorModalProps> = ({
   const [directContent, setDirectContent] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
+  const [needsApiKey, setNeedsApiKey] = useState(false);
 
   if (!isOpen) return null;
 
@@ -157,38 +162,37 @@ export const PromptGeneratorModal: React.FC<PromptGeneratorModalProps> = ({
 
     setIsGenerating(true);
     setGenError(null);
+    setNeedsApiKey(false);
 
     try {
-      throw new Error(
-        'تولید مستقیم با هوش مصنوعی در این نسخه از اپلیکیشن غیرفعال است. لطفاً پرامپت را کپی کرده و در یک چت‌بات هوش مصنوعی (مانند ChatGPT یا Gemini) وارد کنید، سپس پاسخ JSON را در بخش "Direct Import" وارد نمایید.'
-      );
+      const { geminiApiKey, geminiModel } = loadAISettings();
+      if (!geminiApiKey) {
+        setNeedsApiKey(true);
+        throw new GeminiError('برای تولید مستقیم، ابتدا کلید Gemini API خود را در تنظیمات وارد کنید.');
+      }
 
-      // eslint-disable-next-line no-unreachable
-      const response = await fetch('/api/ai/generate-flashcards', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const result = await generateFlashcardsFromSource(
+        {
           content: directContent,
           language: config.language,
           cardCount: Math.min(config.cardCount, 50),
-          cardFormat: config.cardFormat || 'mcq',
+          cardFormat: (config.cardFormat as any) || 'mcq',
           specialty: config.specialty,
-          style: config.style,
-        }),
-      });
+          difficulty: 'medium',
+        },
+        geminiApiKey,
+        geminiModel
+      );
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'خطا در تولید مستقیم کارت‌ها با هوش مصنوعی');
-      }
-
-      if (data.cards && onDirectImport) {
-        onDirectImport(JSON.stringify(data.cards, null, 2));
+      if (result.cards && onDirectImport) {
+        onDirectImport(JSON.stringify(result.cards, null, 2));
         onClose();
       }
     } catch (err: any) {
-      setGenError(err.message || 'خطا در ارتباط با سرور. می‌توانید از پرامپت کپی شده در ChatGPT یا Claude استفاده کنید.');
+      if (err instanceof GeminiError && /کلید Gemini API/.test(err.message)) {
+        setNeedsApiKey(true);
+      }
+      setGenError(err.message || 'خطا در ارتباط با Gemini. می‌توانید از پرامپت کپی شده در ChatGPT یا Claude استفاده کنید.');
     } finally {
       setIsGenerating(false);
     }
@@ -544,7 +548,21 @@ export const PromptGeneratorModal: React.FC<PromptGeneratorModalProps> = ({
               {genError && (
                 <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{genError}</span>
+                  <div className="flex-1 space-y-2">
+                    <span className="block">{genError}</span>
+                    {needsApiKey && onOpenSettings && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onOpenSettings();
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-[11px] transition cursor-pointer"
+                      >
+                        <span>باز کردن تنظیمات و وارد کردن کلید API</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 

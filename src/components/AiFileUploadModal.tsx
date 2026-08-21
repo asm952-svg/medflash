@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
   Sparkles,
   Upload,
@@ -21,23 +21,31 @@ import {
   FileQuestion,
   RefreshCw,
   Plus,
+  ShieldCheck,
 } from 'lucide-react';
 import { Deck, Flashcard } from '../types';
+import { loadAISettings } from '../utils/storage';
+import { generateFlashcardsFromSource, GeminiError } from '../utils/geminiClient';
+import { detectDuplicatesInBatch } from '../utils/duplicateDetection';
 
 interface AiFileUploadModalProps {
   isOpen: boolean;
   onClose: () => void;
   decks: Deck[];
+  existingCards: Flashcard[];
   onImportSuccess: (newCards: Flashcard[], targetDeckId: string, newDeckTitle?: string) => void;
   onOpenPromptGen?: () => void;
+  onOpenSettings?: () => void;
 }
 
 export const AiFileUploadModal: React.FC<AiFileUploadModalProps> = ({
   isOpen,
   onClose,
   decks,
+  existingCards,
   onImportSuccess,
   onOpenPromptGen,
+  onOpenSettings,
 }) => {
   const [inputMode, setInputMode] = useState<'file' | 'text'>('file');
   const [selectedFile, setSelectedFile] = useState<{
@@ -64,13 +72,28 @@ export const AiFileUploadModal: React.FC<AiFileUploadModalProps> = ({
   const [generationProgress, setGenerationProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState('در حال پردازش فایل...');
   const [generatedCards, setGeneratedCards] = useState<Partial<Flashcard>[]>([]);
+  const [skipDuplicates, setSkipDuplicates] = useState(true);
+  const [forceKeepIndexes, setForceKeepIndexes] = useState<Set<number>>(new Set());
   const [suggestedDeckTitle, setSuggestedDeckTitle] = useState('');
   const [generationSummary, setGenerationSummary] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [copiedRaw, setCopiedRaw] = useState(false);
+  const [needsApiKey, setNeedsApiKey] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Flags AI-generated cards that closely match cards already saved in the target
+  // deck, or that repeat one another within this same generation batch.
+  const duplicateMap = useMemo(() => {
+    const pool = selectedDeckId === 'new' ? [] : existingCards.filter((c) => c.deckId === selectedDeckId);
+    return detectDuplicatesInBatch(generatedCards, pool).duplicates;
+  }, [generatedCards, existingCards, selectedDeckId]);
+
+  const duplicateCount = duplicateMap.size;
+  const cardsToSaveCount = generatedCards.filter(
+    (_, idx) => !duplicateMap.has(idx) || forceKeepIndexes.has(idx) || !skipDuplicates
+  ).length;
 
   if (!isOpen) return null;
 
@@ -148,60 +171,46 @@ export const AiFileUploadModal: React.FC<AiFileUploadModalProps> = ({
     }, 1200);
 
     try {
-      const payload: any = {
-        language,
-        cardCount,
-        cardFormat,
-        specialty,
-        difficulty,
-        customInstructions,
-      };
-
-      if (inputMode === 'file' && selectedFile) {
-        payload.file = {
-          base64: selectedFile.base64,
-          mimeType: selectedFile.mimeType,
-          name: selectedFile.name,
-        };
-      } else {
-        payload.content = textContent;
+      const { geminiApiKey, geminiModel } = loadAISettings();
+      if (!geminiApiKey) {
+        clearInterval(progressTimer);
+        setNeedsApiKey(true);
+        setErrorMessage('برای تولید با هوش مصنوعی، ابتدا کلید Gemini API خود را در تنظیمات وارد کنید.');
+        setStep('config');
+        return;
       }
 
-      throw new Error(
-        'تولید خودکار با هوش مصنوعی در این نسخه از اپلیکیشن غیرفعال است. لطفاً از گزینه "Prompt Generator" برای ساخت دستی کارت‌ها استفاده کنید.'
+      const result = await generateFlashcardsFromSource(
+        {
+          content: inputMode === 'text' ? textContent : undefined,
+          file:
+            inputMode === 'file' && selectedFile
+              ? { base64: selectedFile.base64, mimeType: selectedFile.mimeType, name: selectedFile.name }
+              : undefined,
+          language,
+          cardCount,
+          cardFormat,
+          specialty,
+          difficulty,
+          customInstructions,
+        },
+        geminiApiKey,
+        geminiModel
       );
 
-      // eslint-disable-next-line no-unreachable
-      const response = await fetch('/api/ai/generate-flashcards', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-
       clearInterval(progressTimer);
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || `خطا در پردازش با کد وضعیت ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (!data.cards || data.cards.length === 0) {
-        throw new Error('هوش مصنوعی کارتی برای این محتوا تولید نکرد. لطفاً کیفیت فایل یا متن را بررسی کنید.');
-      }
-
       setGenerationProgress(100);
       setStatusMessage('فلش‌کارت‌ها با موفقیت تولید شدند!');
-      setGeneratedCards(data.cards);
-      setSuggestedDeckTitle(data.suggestedDeckTitle || newDeckTitle || 'فلش‌کارت‌های هوش مصنوعی');
-      setGenerationSummary(data.summary || '');
+      setGeneratedCards(result.cards);
+      setSuggestedDeckTitle(result.suggestedDeckTitle || newDeckTitle || 'فلش‌کارت‌های هوش مصنوعی');
+      setGenerationSummary(result.summary || '');
       setStep('preview');
     } catch (err: any) {
       clearInterval(progressTimer);
       console.error('AI Generation Failed:', err);
+      if (err instanceof GeminiError && /کلید Gemini API/.test(err.message)) {
+        setNeedsApiKey(true);
+      }
       setErrorMessage(err.message || 'متأسفانه در تولید هوش مصنوعی خطایی رخ داد.');
       setStep('config');
     }
@@ -209,6 +218,17 @@ export const AiFileUploadModal: React.FC<AiFileUploadModalProps> = ({
 
   const handleCardDelete = (index: number) => {
     setGeneratedCards((prev) => prev.filter((_, i) => i !== index));
+    // Indexes shift after a delete; clear force-keep flags to avoid misapplying them.
+    setForceKeepIndexes(new Set());
+  };
+
+  const handleToggleForceKeep = (index: number) => {
+    setForceKeepIndexes((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
   };
 
   const handleCardUpdate = (index: number, updatedFields: Partial<Flashcard>) => {
@@ -220,6 +240,11 @@ export const AiFileUploadModal: React.FC<AiFileUploadModalProps> = ({
   const handleFinalSave = () => {
     if (generatedCards.length === 0) return;
 
+    const cardsToSave = generatedCards.filter(
+      (_, idx) => !duplicateMap.has(idx) || forceKeepIndexes.has(idx) || !skipDuplicates
+    );
+    if (cardsToSave.length === 0) return;
+
     let finalDeckId = selectedDeckId;
     let customDeckName: string | undefined = undefined;
 
@@ -228,7 +253,7 @@ export const AiFileUploadModal: React.FC<AiFileUploadModalProps> = ({
       customDeckName = newDeckTitle.trim() || suggestedDeckTitle || 'فلش‌کارت‌های هوش مصنوعی';
     }
 
-    const finalizedCards: Flashcard[] = generatedCards.map((c) => ({
+    const finalizedCards: Flashcard[] = cardsToSave.map((c) => ({
       id: `card_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       deckId: finalDeckId,
       cardType: c.cardType || (c.options && c.options.length >= 2 ? 'mcq' : 'standard'),
@@ -280,7 +305,7 @@ export const AiFileUploadModal: React.FC<AiFileUploadModalProps> = ({
                   تبدیل مستقیم فایل به فلش‌کارت با هوش مصنوعی
                 </h2>
                 <span className="px-2 py-0.5 bg-emerald-400 text-slate-950 text-[10px] font-extrabold rounded-full">
-                  Gemini 3.7 AI
+                  Gemini AI
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-slate-300">
@@ -337,19 +362,33 @@ export const AiFileUploadModal: React.FC<AiFileUploadModalProps> = ({
                   <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
                   <div className="flex-1 space-y-2">
                     <p className="font-bold leading-relaxed">{errorMessage}</p>
-                    {onOpenPromptGen && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onClose();
-                          onOpenPromptGen();
-                        }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-rose-300 hover:bg-rose-100 text-rose-900 font-bold rounded-xl text-[11px] transition shadow-xs cursor-pointer"
-                      >
-                        <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>استفاده از سازنده پرامپت هوش مصنوعی (کپی رایگان برای ChatGPT / Claude)</span>
-                      </button>
-                    )}
+                    <div className="flex flex-wrap gap-2">
+                      {needsApiKey && onOpenSettings && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onClose();
+                            onOpenSettings();
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-[11px] transition shadow-xs cursor-pointer"
+                        >
+                          <span>باز کردن تنظیمات و وارد کردن کلید API</span>
+                        </button>
+                      )}
+                      {onOpenPromptGen && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onClose();
+                            onOpenPromptGen();
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-rose-300 hover:bg-rose-100 text-rose-900 font-bold rounded-xl text-[11px] transition shadow-xs cursor-pointer"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>استفاده از سازنده پرامپت هوش مصنوعی (کپی رایگان برای ChatGPT / Claude)</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -628,7 +667,7 @@ export const AiFileUploadModal: React.FC<AiFileUploadModalProps> = ({
                   />
                 </div>
                 <div className="flex justify-between text-[10px] text-slate-400 font-mono">
-                  <span>Gemini 3.7 Flash Engine</span>
+                  <span>Gemini AI Engine</span>
                   <span>{generationProgress}%</span>
                 </div>
               </div>
@@ -681,17 +720,44 @@ export const AiFileUploadModal: React.FC<AiFileUploadModalProps> = ({
                 </div>
               </div>
 
+              {duplicateCount > 0 && (
+                <div className="p-3.5 rounded-xl border border-amber-300 bg-amber-50/80 text-amber-950 flex flex-col sm:flex-row sm:items-center gap-2.5 justify-between">
+                  <div className="flex items-start gap-2 text-xs">
+                    <Copy className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+                    <span>
+                      <strong>{duplicateCount} کارت</strong> شبیه به کارت‌های موجود در دسته مقصد (یا تکراری در همین دسته تولیدشده) شناسایی شد.
+                    </span>
+                  </div>
+                  <label className="flex items-center gap-1.5 text-[11px] font-bold cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={skipDuplicates}
+                      onChange={(e) => setSkipDuplicates(e.target.checked)}
+                      className="w-3.5 h-3.5 accent-amber-600"
+                    />
+                    <span>رد کردن خودکار موارد تکراری هنگام ذخیره</span>
+                  </label>
+                </div>
+              )}
+
               {/* Cards List Preview */}
               <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-1">
                 {generatedCards.map((card, idx) => {
                   const isMCQ = card.cardType === 'mcq' || (card.options && card.options.length >= 2);
+                  const dupMatch = duplicateMap.get(idx);
+                  const isKeptAnyway = forceKeepIndexes.has(idx);
+                  const willBeSkipped = !!dupMatch && skipDuplicates && !isKeptAnyway;
                   return (
                     <div
                       key={idx}
-                      className="bg-white p-4.5 rounded-2xl border border-slate-200/90 shadow-xs space-y-3 relative group hover:border-emerald-300 transition"
+                      className={`p-4.5 rounded-2xl border shadow-xs space-y-3 relative group transition ${
+                        willBeSkipped
+                          ? 'bg-amber-50/50 border-amber-300 opacity-70'
+                          : 'bg-white border-slate-200/90 hover:border-emerald-300'
+                      }`}
                     >
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="w-6 h-6 rounded-lg bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center">
                             {idx + 1}
                           </span>
@@ -707,16 +773,39 @@ export const AiFileUploadModal: React.FC<AiFileUploadModalProps> = ({
                               {card.specialty}
                             </span>
                           )}
+                          {dupMatch && (
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-900 text-[10px] font-bold rounded-md flex items-center gap-1">
+                              <Copy className="w-3 h-3" />
+                              {dupMatch.isInternal ? 'تکراری در همین دسته' : 'مشابه کارت موجود'} (
+                              {Math.round(dupMatch.score * 100)}٪)
+                            </span>
+                          )}
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => handleCardDelete(idx)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                          title="حذف این کارت"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          {dupMatch && (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleForceKeep(idx)}
+                              title={isKeptAnyway ? 'رد کردن این کارت از ذخیره' : 'افزودن با وجود تشابه'}
+                              className={`p-1.5 rounded-lg transition cursor-pointer ${
+                                isKeptAnyway
+                                  ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                                  : 'text-amber-600 hover:bg-amber-100'
+                              }`}
+                            >
+                              <ShieldCheck className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleCardDelete(idx)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                            title="حذف این کارت"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
 
                       {/* Question / Front */}
@@ -811,10 +900,14 @@ export const AiFileUploadModal: React.FC<AiFileUploadModalProps> = ({
                   <button
                     type="button"
                     onClick={handleFinalSave}
-                    className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs sm:text-sm transition shadow-lg shadow-emerald-600/30 cursor-pointer"
+                    disabled={cardsToSaveCount === 0}
+                    className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs sm:text-sm transition shadow-lg shadow-emerald-600/30 cursor-pointer"
                   >
                     <CheckCircle2 className="w-4 h-4" />
-                    <span>افزودن تمام {generatedCards.length} کارت به بانک مطالعه</span>
+                    <span>
+                      افزودن {cardsToSaveCount} کارت به بانک مطالعه
+                      {duplicateCount > 0 && skipDuplicates ? ` (${duplicateCount} تکراری رد شد)` : ''}
+                    </span>
                   </button>
                 </div>
               </div>

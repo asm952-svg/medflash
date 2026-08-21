@@ -9,6 +9,7 @@ import {
   Upload,
   Brain,
   Stethoscope,
+  Settings,
 } from 'lucide-react';
 import { StudyStats } from '../types';
 
@@ -20,6 +21,7 @@ interface NavbarProps {
   onOpenPromptGen: () => void;
   onOpenImport: () => void;
   onOpenNewCard: () => void;
+  onOpenSettings: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -30,6 +32,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenPromptGen,
   onOpenImport,
   onOpenNewCard,
+  onOpenSettings,
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs" dir="rtl">
@@ -129,6 +132,16 @@ export const Navbar: React.FC<NavbarProps> = ({
             <Upload className="w-4 h-4" />
             <span className="hidden sm:inline">ورود کد JSON</span>
           </button>
+
+          {/* Settings CTA */}
+          <button
+            onClick={onOpenSettings}
+            className="p-2 sm:px-3 sm:py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5"
+            title="تنظیمات هوش مصنوعی (کلید Gemini API)"
+          >
+            <Settings className="w-4 h-4" />
+            <span className="hidden lg:inline">تنظیمات</span>
+          </button>
         </div>
       </div>
 
@@ -162,6 +175,11 @@ export const Navbar: React.FC<NavbarProps> = ({
         >
           <BarChart3 className="w-4 h-4" />
           <span>آمار</span>
+        </button>
+
+        <button onClick={onOpenSettings} className="flex items-center gap-1 py-1 font-bold text-slate-500">
+          <Settings className="w-4 h-4" />
+          <span>تنظیمات</span>
         </button>
       </div>
     </header>

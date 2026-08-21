@@ -10,8 +10,12 @@ import {
   recordCardReviewInStats,
   clearAllCards,
   resetAllToDefaults,
+  loadSessionPointer,
+  saveSessionPointer,
+  clearSessionPointer,
+  SessionPointer,
 } from './utils/storage';
-import { sortCardsForStudy } from './utils/sm2';
+import { sortCardsForStudy, isCardDue } from './utils/sm2';
 import { Navbar } from './components/Navbar';
 import { DeckList } from './components/DeckList';
 import { StudySession } from './components/StudySession';
@@ -23,7 +27,8 @@ import { PromptGeneratorModal } from './components/PromptGeneratorModal';
 import { ImportCardsModal } from './components/ImportCardsModal';
 import { CardEditorModal } from './components/CardEditorModal';
 import { AiFileUploadModal } from './components/AiFileUploadModal';
-import { CheckCircle2 } from 'lucide-react';
+import { SettingsModal } from './components/SettingsModal';
+import { CheckCircle2, PlayCircle, X as XIcon } from 'lucide-react';
 
 export default function App() {
   const [decks, setDecks] = useState<Deck[]>([]);
@@ -47,6 +52,10 @@ export default function App() {
   const [isCardEditorOpen, setIsCardEditorOpen] = useState(false);
   const [editingCard, setEditingCard] = useState<Flashcard | null>(null);
   const [defaultEditorDeckId, setDefaultEditorDeckId] = useState<string | undefined>(undefined);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // Resume-session banner (shows if the app was closed mid-session)
+  const [resumeBanner, setResumeBanner] = useState<{ pointer: SessionPointer; deck: Deck } | null>(null);
 
   // Toast notification
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -64,6 +73,19 @@ export default function App() {
     setDecks(loadedDecks);
     setCards(loadedCards);
     setStats(loadedStats);
+
+    // Check for an interrupted session to offer resuming
+    const pointer = loadSessionPointer();
+    if (pointer) {
+      const deck = loadedDecks.find((d) => d.id === pointer.deckId);
+      const deckCards = loadedCards.filter((c) => c.deckId === pointer.deckId);
+      const hasWork = pointer.type === 'study' ? deckCards.some(isCardDue) : deckCards.length > 0;
+      if (deck && hasWork) {
+        setResumeBanner({ pointer, deck });
+      } else {
+        clearSessionPointer();
+      }
+    }
   }, []);
 
   // Save changes
@@ -90,6 +112,8 @@ export default function App() {
       deck,
       cards: sorted,
     });
+    setResumeBanner(null);
+    saveSessionPointer({ type: 'study', deckId: deck.id, startedAt: new Date().toISOString() });
   };
 
   const handleStartQuiz = (deck: Deck) => {
@@ -103,6 +127,8 @@ export default function App() {
       deck,
       cards: deckCards,
     });
+    setResumeBanner(null);
+    saveSessionPointer({ type: 'quiz', deckId: deck.id, startedAt: new Date().toISOString() });
   };
 
   const handleStartActiveRecall = (deck: Deck) => {
@@ -116,19 +142,39 @@ export default function App() {
       deck,
       cards: deckCards,
     });
+    setResumeBanner(null);
+    saveSessionPointer({ type: 'active_recall', deckId: deck.id, startedAt: new Date().toISOString() });
+  };
+
+  const handleExitSession = () => {
+    setActiveSession(null);
+    // Intentionally keep the session pointer so the resume banner can
+    // offer to continue next time the app is opened.
+  };
+
+  // Called after every single card rating in StudySession, so progress is
+  // saved to disk immediately rather than only when the whole session ends.
+  const handleSessionProgress = (updatedCard: Flashcard) => {
+    setCards((prev) => {
+      const next = prev.map((c) => (c.id === updatedCard.id ? updatedCard : c));
+      saveCards(next);
+      return next;
+    });
+    recordCardReviewInStats(updatedCard.repetitions > 0 ? 3 : 1);
+    setStats(loadStats());
   };
 
   const handleFinishStudySession = (updatedReviewedCards: Flashcard[]) => {
     const cardMap = new Map<string, Flashcard>(cards.map((c) => [c.id, c]));
     updatedReviewedCards.forEach((c) => {
       cardMap.set(c.id, c);
-      recordCardReviewInStats(c.repetitions > 0 ? 3 : 1);
     });
 
     const newCardsList: Flashcard[] = Array.from(cardMap.values());
     updateCards(newCardsList);
     setStats(loadStats());
     setActiveSession(null);
+    clearSessionPointer();
     showToast('پیشرفت جلسه مرور در الگوریتم با موفقیت ذخیره شد!');
   };
 
@@ -278,10 +324,50 @@ export default function App() {
           setDefaultEditorDeckId(decks[0]?.id);
           setIsCardEditorOpen(true);
         }}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       {/* Main Container */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+        {/* Resume interrupted session banner */}
+        {resumeBanner && !activeSession && (
+          <div className="mb-6 bg-emerald-50 border border-emerald-200 rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                <PlayCircle className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-emerald-950">
+                  یک جلسه مطالعه نیمه‌تمام در «{resumeBanner.deck.title}» دارید
+                </p>
+                <p className="text-xs text-emerald-800">می‌خواهید از همان‌جا ادامه دهید؟</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 self-end sm:self-center">
+              <button
+                onClick={() => {
+                  const deck = resumeBanner.deck;
+                  const type = resumeBanner.pointer.type;
+                  if (type === 'study') handleStartStudy(deck);
+                  else if (type === 'quiz') handleStartQuiz(deck);
+                  else handleStartActiveRecall(deck);
+                }}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-md shadow-emerald-600/25 cursor-pointer"
+              >
+                ادامه مطالعه
+              </button>
+              <button
+                onClick={() => {
+                  setResumeBanner(null);
+                  clearSessionPointer();
+                }}
+                className="p-2 text-emerald-700 hover:bg-emerald-100 rounded-xl transition cursor-pointer"
+              >
+                <XIcon className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
         {/* Active Session View (Study, Quiz, Active Recall) */}
         {activeSession ? (
           <div>
@@ -290,7 +376,9 @@ export default function App() {
                 deck={activeSession.deck}
                 cards={activeSession.cards}
                 onFinishSession={handleFinishStudySession}
-                onExit={() => setActiveSession(null)}
+                onProgress={handleSessionProgress}
+                onExit={handleExitSession}
+                onOpenSettings={() => setIsSettingsOpen(true)}
               />
             )}
 
@@ -299,11 +387,15 @@ export default function App() {
                 deck={activeSession.deck}
                 cards={activeSession.cards}
                 allDeckCards={cards.filter((c) => c.deckId === activeSession.deck.id)}
-                onExit={() => setActiveSession(null)}
+                onExit={() => {
+                  setActiveSession(null);
+                  clearSessionPointer();
+                }}
                 onCardAnswered={(_card, isCorrect) => {
                   recordCardReviewInStats(isCorrect ? 3 : 1);
                   setStats(loadStats());
                 }}
+                onOpenSettings={() => setIsSettingsOpen(true)}
               />
             )}
 
@@ -311,7 +403,11 @@ export default function App() {
               <ActiveRecallSession
                 deck={activeSession.deck}
                 cards={activeSession.cards}
-                onExit={() => setActiveSession(null)}
+                onExit={() => {
+                  setActiveSession(null);
+                  clearSessionPointer();
+                }}
+                onOpenSettings={() => setIsSettingsOpen(true)}
               />
             )}
           </div>
@@ -374,6 +470,7 @@ export default function App() {
                 cards={cards}
                 onResetAllData={handleResetAllData}
                 onClearAllCards={handleClearAllCards}
+                onOpenSettings={() => setIsSettingsOpen(true)}
               />
             )}
           </div>
@@ -385,10 +482,15 @@ export default function App() {
         isOpen={isAiFileModalOpen}
         onClose={() => setIsAiFileModalOpen(false)}
         decks={decks}
+        existingCards={cards}
         onImportSuccess={handleImportSuccess}
         onOpenPromptGen={() => {
           setIsAiFileModalOpen(false);
           setIsPromptGenOpen(true);
+        }}
+        onOpenSettings={() => {
+          setIsAiFileModalOpen(false);
+          setIsSettingsOpen(true);
         }}
       />
 
@@ -400,13 +502,21 @@ export default function App() {
           setImportInitialJson(rawJson);
           setIsImportOpen(true);
         }}
+        onOpenSettings={() => {
+          setIsPromptGenOpen(false);
+          setIsSettingsOpen(true);
+        }}
       />
+
+      {/* Settings Modal (Gemini API key) */}
+      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
 
       {/* Import Cards Modal */}
       <ImportCardsModal
         isOpen={isImportOpen}
         onClose={() => setIsImportOpen(false)}
         decks={decks}
+        existingCards={cards}
         initialJson={importInitialJson}
         onImportSuccess={handleImportSuccess}
       />
@@ -419,6 +529,7 @@ export default function App() {
           setEditingCard(null);
         }}
         decks={decks}
+        existingCards={cards}
         editingCard={editingCard}
         defaultDeckId={defaultEditorDeckId}
         onSaveCard={handleSaveCard}

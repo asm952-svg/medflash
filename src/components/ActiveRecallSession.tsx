@@ -11,17 +11,20 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Deck, Flashcard } from '../types';
+import { AiExplainPanel } from './AiExplainPanel';
 
 interface ActiveRecallSessionProps {
   deck: Deck;
   cards: Flashcard[];
   onExit: () => void;
+  onOpenSettings?: () => void;
 }
 
 export const ActiveRecallSession: React.FC<ActiveRecallSessionProps> = ({
   deck,
   cards,
   onExit,
+  onOpenSettings,
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [typedAnswer, setTypedAnswer] = useState('');
@@ -175,6 +178,8 @@ export const ActiveRecallSession: React.FC<ActiveRecallSessionProps> = ({
                 </div>
               </div>
             )}
+
+            <AiExplainPanel card={currentCard} onOpenSettings={onOpenSettings} />
 
             <div className="flex justify-end pt-2">
               <button

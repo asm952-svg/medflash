@@ -6,7 +6,71 @@ const STORAGE_KEYS = {
   CARDS: 'medflash_custom_cards_v2',
   STATS: 'medflash_custom_stats_v2',
   LANG: 'medflash_lang_v2',
+  SETTINGS: 'medflash_ai_settings_v1',
+  SESSION_POINTER: 'medflash_active_session_v1',
 };
+
+export interface AISettings {
+  geminiApiKey: string;
+  geminiModel: string;
+}
+
+const DEFAULT_AI_SETTINGS: AISettings = {
+  geminiApiKey: '',
+  geminiModel: 'gemini-2.5-flash',
+};
+
+export function loadAISettings(): AISettings {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+    if (raw) {
+      return { ...DEFAULT_AI_SETTINGS, ...JSON.parse(raw) };
+    }
+  } catch (e) {
+    console.error('Failed to load AI settings', e);
+  }
+  return DEFAULT_AI_SETTINGS;
+}
+
+export function saveAISettings(settings: AISettings) {
+  try {
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+  } catch (e) {
+    console.error('Failed to save AI settings', e);
+  }
+}
+
+export interface SessionPointer {
+  type: 'study' | 'quiz' | 'active_recall';
+  deckId: string;
+  startedAt: string;
+}
+
+export function loadSessionPointer(): SessionPointer | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.SESSION_POINTER);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.error('Failed to load session pointer', e);
+  }
+  return null;
+}
+
+export function saveSessionPointer(pointer: SessionPointer) {
+  try {
+    localStorage.setItem(STORAGE_KEYS.SESSION_POINTER, JSON.stringify(pointer));
+  } catch (e) {
+    console.error('Failed to save session pointer', e);
+  }
+}
+
+export function clearSessionPointer() {
+  try {
+    localStorage.removeItem(STORAGE_KEYS.SESSION_POINTER);
+  } catch (e) {
+    console.error('Failed to clear session pointer', e);
+  }
+}
 
 // Clean legacy auto-generated keys once
 try {

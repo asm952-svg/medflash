@@ -17,12 +17,17 @@ import {
 import confetti from 'canvas-confetti';
 import { Flashcard, ReviewRating, Deck } from '../types';
 import { calculateSM2, getIntervalPreview } from '../utils/sm2';
+import { AiExplainPanel } from './AiExplainPanel';
 
 interface StudySessionProps {
   deck: Deck;
   cards: Flashcard[];
   onFinishSession: (updatedCards: Flashcard[]) => void;
   onExit: () => void;
+  /** Called immediately after each card is rated, so progress is never lost
+   * if the app is closed mid-session. */
+  onProgress?: (updatedCard: Flashcard) => void;
+  onOpenSettings?: () => void;
 }
 
 export const StudySession: React.FC<StudySessionProps> = ({
@@ -30,6 +35,8 @@ export const StudySession: React.FC<StudySessionProps> = ({
   cards,
   onFinishSession,
   onExit,
+  onProgress,
+  onOpenSettings,
 }) => {
   // Active queue of cards to study in this session
   const [queue, setQueue] = useState<Flashcard[]>([]);
@@ -105,6 +112,9 @@ export const StudySession: React.FC<StudySessionProps> = ({
       updatedMap.set(updatedCard.id, updatedCard);
       setReviewedCardsMap(updatedMap);
 
+      // Persist immediately so progress survives the app being closed mid-session
+      onProgress?.(updatedCard);
+
       // Update session statistics
       setSessionStats((prev) => ({
         ...prev,
@@ -138,7 +148,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
         } catch (e) {}
       }
     },
-    [currentCard, currentIndex, queue.length, reviewedCardsMap]
+    [currentCard, currentIndex, queue.length, reviewedCardsMap, onProgress]
   );
 
   // Keyboard shortcut listener
@@ -488,6 +498,10 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   </div>
                 </div>
               )}
+
+              <div className="pt-1">
+                <AiExplainPanel card={currentCard} onOpenSettings={onOpenSettings} />
+              </div>
             </div>
           )}
         </div>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Flame,
   Award,
@@ -10,9 +10,14 @@ import {
   RotateCcw,
   Sparkles,
   Layers,
+  Loader2,
+  KeyRound,
+  RefreshCw,
 } from 'lucide-react';
 import { Deck, Flashcard, StudyStats } from '../types';
 import { isCardDue } from '../utils/sm2';
+import { loadAISettings } from '../utils/storage';
+import { analyzeStudyPerformance, GeminiError } from '../utils/geminiClient';
 
 interface StatsViewProps {
   stats: StudyStats;
@@ -20,6 +25,48 @@ interface StatsViewProps {
   cards: Flashcard[];
   onResetAllData: () => void;
   onClearAllCards?: () => void;
+  onOpenSettings?: () => void;
+}
+
+interface SpecialtyPerf {
+  specialty: string;
+  totalReviews: number;
+  correctReviews: number;
+  lapses: number;
+  masteredCount: number;
+  cardCount: number;
+  accuracy: number;
+}
+
+function buildSpecialtyBreakdown(cards: Flashcard[]): SpecialtyPerf[] {
+  const map = new Map<string, SpecialtyPerf>();
+  for (const card of cards) {
+    const key = card.specialty?.trim() || 'دسته‌بندی‌نشده';
+    if (!map.has(key)) {
+      map.set(key, {
+        specialty: key,
+        totalReviews: 0,
+        correctReviews: 0,
+        lapses: 0,
+        masteredCount: 0,
+        cardCount: 0,
+        accuracy: 0,
+      });
+    }
+    const entry = map.get(key)!;
+    entry.cardCount += 1;
+    entry.lapses += card.lapses || 0;
+    if (card.state === 'mastered') entry.masteredCount += 1;
+    const history = card.history || [];
+    for (const log of history) {
+      entry.totalReviews += 1;
+      if (log.rating >= 2) entry.correctReviews += 1;
+    }
+  }
+  for (const entry of map.values()) {
+    entry.accuracy = entry.totalReviews > 0 ? Math.round((entry.correctReviews / entry.totalReviews) * 100) : 0;
+  }
+  return Array.from(map.values()).sort((a, b) => b.cardCount - a.cardCount);
 }
 
 export const StatsView: React.FC<StatsViewProps> = ({
@@ -28,7 +75,70 @@ export const StatsView: React.FC<StatsViewProps> = ({
   cards,
   onResetAllData,
   onClearAllCards,
+  onOpenSettings,
 }) => {
+  const [analysis, setAnalysis] = useState<string | null>(null);
+  const [analysisState, setAnalysisState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [analysisError, setAnalysisError] = useState('');
+  const [needsApiKey, setNeedsApiKey] = useState(false);
+
+  const handleAnalyze = async () => {
+    setAnalysisState('loading');
+    setAnalysisError('');
+    setNeedsApiKey(false);
+
+    try {
+      const { geminiApiKey, geminiModel } = loadAISettings();
+      if (!geminiApiKey) {
+        setNeedsApiKey(true);
+        throw new GeminiError('برای تحلیل هوشمند آمار، ابتدا کلید Gemini API خود را در تنظیمات وارد کنید.');
+      }
+
+      const reviewedCards = cards.filter((c) => (c.history || []).length > 0);
+      if (reviewedCards.length === 0) {
+        throw new GeminiError('هنوز داده‌ای برای تحلیل وجود ندارد. ابتدا چند جلسه مطالعه انجام دهید.');
+      }
+
+      const breakdown = buildSpecialtyBreakdown(cards).filter((s) => s.totalReviews > 0);
+      const weakCards = cards
+        .filter((c) => c.lapses >= 2 || (c.history || []).filter((h) => h.rating === 1).length >= 2)
+        .slice(0, 25)
+        .map((c) => ({ front: c.front.slice(0, 120), specialty: c.specialty, lapses: c.lapses }));
+
+      const promptText = `آمار کلی مطالعه کاربر:
+- مجموع دفعات مرور: ${stats.totalReviews}
+- نرخ کلی تثبیت حافظه (Retention): ${stats.retentionRate}٪
+- توالی روزهای متوالی مطالعه: ${stats.streakDays}
+- تعداد کل کارت‌ها: ${cards.length}
+
+عملکرد به تفکیک تخصص/مبحث (specialty):
+${breakdown
+  .map(
+    (s) =>
+      `- ${s.specialty}: ${s.cardCount} کارت، ${s.totalReviews} بار مرور، دقت ${s.accuracy}٪، ${s.masteredCount} کارت تسلط‌یافته، ${s.lapses} بار فراموشی`
+  )
+  .join('\n')}
+
+نمونه‌ای از کارت‌هایی که کاربر بیشترین فراموشی/اشتباه را در آن‌ها داشته:
+${weakCards.map((c) => `- [${c.specialty || 'نامشخص'}] ${c.front}`).join('\n') || 'موردی ثبت نشده'}
+
+لطفاً بر اساس این داده‌ها:
+۱. مشخص کن کاربر در کدام مبحث/تخصص ضعیف‌تر است و چرا (بر اساس دقت پایین یا فراموشی بالا)
+۲. مشخص کن در کدام مبحث قوی‌ترین عملکرد را دارد
+۳. ۳ تا ۵ توصیه عملی و مشخص برای بهبود مطالعه بده (مثلاً افزایش تکرار در فلان مبحث، تمرکز بیشتر روی فلان نوع سوال)
+۴. یک جمع‌بندی کوتاه انگیزشی در پایان بنویس.`;
+
+      const result = await analyzeStudyPerformance(promptText, geminiApiKey, geminiModel);
+      setAnalysis(result);
+      setAnalysisState('idle');
+    } catch (err: any) {
+      if (err instanceof GeminiError && /کلید Gemini API/.test(err.message)) {
+        setNeedsApiKey(true);
+      }
+      setAnalysisError(err.message || 'خطا در تحلیل هوش مصنوعی آمار مطالعه.');
+      setAnalysisState('error');
+    }
+  };
 
   const newCount = cards.filter((c) => c.state === 'new').length;
   const learningCount = cards.filter((c) => c.state === 'learning').length;
@@ -85,6 +195,69 @@ export const StatsView: React.FC<StatsViewProps> = ({
             <span className="text-2xl font-black text-rose-700">{dueCount} کارت</span>
           </div>
         </div>
+      </div>
+
+      {/* AI Performance Analysis */}
+      <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center shadow-xs shrink-0">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-800">تحلیل هوشمند عملکرد با هوش مصنوعی</h3>
+              <p className="text-xs text-slate-500">شناسایی نقاط ضعف و قوت شما بر اساس آمار مرور کارت‌ها</p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleAnalyze}
+            disabled={analysisState === 'loading'}
+            className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition shadow-lg shadow-emerald-600/30 cursor-pointer disabled:opacity-60 shrink-0"
+          >
+            {analysisState === 'loading' ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : analysis ? (
+              <RefreshCw className="w-4 h-4" />
+            ) : (
+              <Sparkles className="w-4 h-4" />
+            )}
+            <span>{analysis ? 'تحلیل مجدد' : 'شروع تحلیل'}</span>
+          </button>
+        </div>
+
+        {analysisState === 'error' && (
+          <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800 flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+            <div className="flex-1 space-y-2">
+              <p className="font-bold leading-relaxed">{analysisError}</p>
+              {needsApiKey && onOpenSettings && (
+                <button
+                  type="button"
+                  onClick={onOpenSettings}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-rose-300 hover:bg-rose-100 text-rose-900 font-bold rounded-xl text-[11px] transition shadow-xs cursor-pointer"
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  <span>باز کردن تنظیمات</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {analysis && analysisState !== 'error' && (
+          <div className="bg-emerald-50/60 border border-emerald-200 rounded-2xl p-5 text-xs sm:text-sm text-slate-800 leading-loose whitespace-pre-wrap">
+            {analysis}
+          </div>
+        )}
+
+        {!analysis && analysisState === 'idle' && (
+          <p className="text-[11px] text-slate-400">
+            هوش مصنوعی با استفاده از کلید Gemini شخصی شما، آمار مرور کارت‌ها را تحلیل کرده و بهترین و ضعیف‌ترین
+            مباحث شما را همراه با توصیه‌های عملی مشخص می‌کند.
+          </p>
+        )}
       </div>
 
       {/* SM-2 Retention Distribution */}
