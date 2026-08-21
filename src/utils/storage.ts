@@ -17,14 +17,21 @@ export interface AISettings {
 
 const DEFAULT_AI_SETTINGS: AISettings = {
   geminiApiKey: '',
-  geminiModel: 'gemini-2.5-flash',
+  geminiModel: 'gemini-3.7-flash',
 };
+
+const RETIRED_MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
 
 export function loadAISettings(): AISettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS);
     if (raw) {
-      return { ...DEFAULT_AI_SETTINGS, ...JSON.parse(raw) };
+      const parsed = { ...DEFAULT_AI_SETTINGS, ...JSON.parse(raw) };
+      // Auto-migrate old/retired model ids saved on a user's device before this update.
+      if (RETIRED_MODELS.includes(parsed.geminiModel)) {
+        parsed.geminiModel = DEFAULT_AI_SETTINGS.geminiModel;
+      }
+      return parsed;
     }
   } catch (e) {
     console.error('Failed to load AI settings', e);

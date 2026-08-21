@@ -10,14 +10,14 @@ interface SettingsModalProps {
 }
 
 const MODEL_OPTIONS = [
-  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (پیشنهادی، سریع)' },
-  { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (دقیق‌تر، کندتر)' },
-  { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite (سبک و سریع‌تر)' },
+  { value: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash (پیشنهادی، سریع)' },
+  { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (دقیق‌تر، کندتر)' },
+  { value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite (سبک و سریع‌تر)' },
 ];
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSaved }) => {
   const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState('gemini-2.5-flash');
+  const [model, setModel] = useState('gemini-3.7-flash');
   const [showKey, setShowKey] = useState(false);
   const [testState, setTestState] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState('');
@@ -26,7 +26,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
     if (isOpen) {
       const s = loadAISettings();
       setApiKey(s.geminiApiKey);
-      setModel(s.geminiModel || 'gemini-2.5-flash');
+      setModel(s.geminiModel || 'gemini-3.7-flash');
       setTestState('idle');
       setTestMessage('');
     }
