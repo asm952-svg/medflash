@@ -93,3 +93,24 @@ Provide:
     throw new GeminiError(error.message || 'Failed to explain card in depth');
   }
 }
+
+export async function analyzeStudyPerformance(
+  statsData: any,
+  apiKey: string,
+  modelName: string = 'gemini-3.7-flash'
+): Promise<string> {
+  if (!apiKey) throw new GeminiError('Gemini API key is required');
+  
+  const prompt = `You are an expert study coach. Analyze the following study performance data and provide actionable advice, identifying weak areas and suggesting improvements.\n\nData: ${JSON.stringify(statsData, null, 2)}`;
+
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+      model: modelName,
+      contents: prompt,
+    });
+    return response.text || '';
+  } catch (error: any) {
+    throw new GeminiError(error.message || 'Failed to analyze study performance');
+  }
+}
